@@ -1,9 +1,16 @@
 use eframe::egui;
+use std::io;
+use std::io::{Read,Write};
 use std::process::Command;
 use std::thread;
+use std::fs::{File, OpenOptions};
+use serde::{Serialize, Deserialize};
+use bincode;
+
 
 //The Website that is the basis of the MPV request
 const VIDEO_URL: &str = "https://www.twitch.tv/";
+const SAVEFILE: &str = "Save/save1.txt";
 
 fn main() {
     //Run the program using native renedering, as opposed to in a browser
@@ -17,6 +24,7 @@ struct MyEguiApp {
     inputstring: String,
     streamers: Vec<String>,
     del_index: i32,
+    setup_complete: bool,
 }
 
 impl Default for MyEguiApp{
@@ -27,8 +35,10 @@ impl Default for MyEguiApp{
             //set del_index to 99 because a user would realistically never reach this number
             //there is also no direct way to assing "null" as an i32 in rust
             del_index: 99,
+            setup_complete: false,
         }
     }
+
 }
 
 impl MyEguiApp {
@@ -39,13 +49,66 @@ impl MyEguiApp {
         // for e.g. egui::PaintCallback.
         Self::default()
     }
+    
+    fn savefile_setup(&mut self, cc: &egui::Context) -> std::io::Result<()>{
+       let path = SAVEFILE;
+       let savefile = File::open(path);
+       if !savefile.is_ok(){
+           let _ = File::create(path);
+           println!("File succesfully created!");
+       } else {
+           self.read_vector_from_file();
+           println!("succesfully read contents");
+           self.setup_complete = true;
+       }
+       Ok(())
+    }
+
+
+    fn write_vector_to_file(&mut self) -> std::io::Result<()>{
+        self.flush_file();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(SAVEFILE)
+            .expect("Cannot open file");
+        println!("Succesfully emptied file");
+
+        for i in &self.streamers{
+            let to_write = i.to_owned() + " ";
+            file.write(to_write.as_bytes())
+                .expect("write failed");
+        }
+        println!("Succesfully wrote to the file");
+        Ok(())
+    }
+
+    fn read_vector_from_file(&mut self) -> std::io::Result<()>{
+        let file = File::open(SAVEFILE);
+        let mut contents = String::new();
+        file?.read_to_string(&mut contents)?;
+        self.streamers = contents.split_whitespace().map(|s| s.to_string()).collect();
+        println!("succesfully read contents from the file");
+        Ok(())
+    }
+
+    fn flush_file(&mut self){
+        let file = File::create(SAVEFILE);
+        file.expect("Cant open").set_len(0);
+    }
+
 }
 
 impl eframe::App for MyEguiApp {
    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
        //Basic header panel
        egui::TopBottomPanel::top("UpperPanel").show(&ctx, |ui|{
-           ui.label("Welcome to the MPV stream selector!")
+           ui.horizontal(|ui| {
+               ui.label("Welcome to the MPV stream selector!");
+               let green_button = egui::Button::new("Save").fill(egui::Color32::GREEN);
+               if ui.add(green_button).clicked() {
+                  self.write_vector_to_file();
+               }
+           })
        });
        //Main panel
        egui::CentralPanel::default().show(ctx, |ui| {
@@ -83,6 +146,9 @@ impl eframe::App for MyEguiApp {
                }
            };
        });
+       if !self.setup_complete {
+           let _ = self.savefile_setup(ctx).unwrap();
+       }
    }
 }
 
@@ -98,3 +164,5 @@ fn run_mpv(streamer:String){
         .expect("failed to execute");
     });
 }
+
+
